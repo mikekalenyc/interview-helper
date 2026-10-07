@@ -1,6 +1,6 @@
 {
   "sha256": {
-    ".github/workflows/checks.yml": "54b609778e7862396ab1e29d0581e32152f469b1f1a82f66d83b519f2f916466",
+    ".github/workflows/checks.yml": "717f0304ae9e4e8da0f58594553996800f4be8eaa06babc5e61d799072636614",
     ".gitignore": "4ea4bbc4bd303adedd5ae69059bc63c1ca7fb12f094d825ddaa1120f60aa3682",
     "LICENSE": "ebc238d514b67be7ca15e9582f497623efd39ad9406e258b85be967e519499d5",
     "MANIFEST.in": "748c0c27d4a0357f37b4b951649dffe90cfea6a8c17d1e524b1c38ca1d3e2aea",
