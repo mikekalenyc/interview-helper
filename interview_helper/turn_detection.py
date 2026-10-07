@@ -55,6 +55,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol, cast
 
@@ -157,7 +158,8 @@ class SmartTurnDetector:
                     "Automatic listening needs Whisper audio features. Install with "
                     "python -m pip install 'onnxruntime>=1.20,<2' 'transformers>=4.45,<5' in the app environment."
                 ) from error
-            feature_extractor = cast(FeatureExtractor, WhisperFeatureExtractor(chunk_length=8))  # type: ignore[no-untyped-call]
+            extractor_factory = cast(Callable[..., FeatureExtractor], WhisperFeatureExtractor)
+            feature_extractor = extractor_factory(chunk_length=8)
         assert feature_extractor is not None
         self._extractor = feature_extractor
 

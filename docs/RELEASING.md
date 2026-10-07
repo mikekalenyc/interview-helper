@@ -62,7 +62,9 @@ it does not capture hardware audio, fetch models, or make paid model calls.
 
 Review the clean export and commit it on `main`. Create the repository explicitly
 as private, push that commit, and verify GitHub reports private visibility.
-Use the initial `v0.1.0` tag for an experimental prerelease. Attach the built
+Tag the tested commit with the version in `pyproject.toml` (currently `v0.1.1`)
+for an experimental prerelease. The initial `v0.1.0` remains available; `v0.1.1`
+fixes fresh CI Qt dependencies and optional-library type checking. Attach the built
 wheel, source archive, and a SHA-256 checksums file; do not attach profiles or
 model weights. Confirm remote commit/tag IDs and attached asset names afterward.
 

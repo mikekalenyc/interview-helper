@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "interview-helper"
-version = "0.1.0"
+version = "0.1.1"
 description = "Linux interview assistant with local transcription and personalized answer context"
 readme = "README.md"
 license = "LicenseRef-Proprietary"

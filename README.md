@@ -5,7 +5,7 @@ and suggests short spoken answers using your own résumé, background, and prepa
 Q&A. It also transcribes your microphone so follow-up answers can use what you
 actually said. A separate command-line daemon supports hold-to-transcribe.
 
-**Status:** experimental, version 0.1.0. **License:** proprietary, all rights
+**Status:** experimental, version 0.1.1. **License:** proprietary, all rights
 reserved. Access to this repository does not grant redistribution rights; see
 [LICENSE](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES.md).
 
@@ -46,7 +46,7 @@ For a wheel downloaded from this repository's Releases page:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install './interview_helper-0.1.0-py3-none-any.whl[desktop]'
+.venv/bin/python -m pip install './interview_helper-0.1.1-py3-none-any.whl[desktop]'
 ```
 
 The package is not published to PyPI. Wheel users still need the same system
