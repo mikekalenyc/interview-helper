@@ -1,0 +1,23 @@
+# Replace idVendor/idProduct with values from the selected device.
+ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", \
+  ATTRS{idVendor}=="8089", ATTRS{idProduct}=="000c", \
+  TAG+="uaccess", RUN{builtin}+="uaccess"
+
+# If keyd remaps the selected keyboard, learn from keyd's output instead of
+# the exclusively grabbed physical keyboard. The symlink is stable even when
+# the virtual event number changes.
+ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", \
+  ATTRS{name}=="keyd virtual keyboard", \
+  ATTRS{id/vendor}=="0fac", ATTRS{id/product}=="0ade", \
+  SYMLINK+="input/by-id/interview-helper-keyd-event-kbd", \
+  TAG+="uaccess", RUN{builtin}+="uaccess"
+
+# Bluetooth input devices normally have no /dev/input/by-id link. Replace the
+# name, vendor, product, and uniq values with the selected device's attributes.
+# Matching uniq keeps access limited to one paired device.
+ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", \
+  ATTRS{name}=="Example Bluetooth Mouse", \
+  ATTRS{id/vendor}=="0000", ATTRS{id/product}=="0000", \
+  ATTRS{uniq}=="00:00:00:00:00:00", \
+  SYMLINK+="input/by-id/interview-helper-bluetooth-event-mouse", \
+  TAG+="uaccess", RUN{builtin}+="uaccess"

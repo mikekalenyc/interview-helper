@@ -1,0 +1,14 @@
+[Unit]
+Description=Hold-to-transcribe headphone audio
+After=pipewire-pulse.service
+Wants=pipewire-pulse.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/interview-helper
+ExecStart=%h/interview-helper/.venv/bin/interview-helper run --input-device /dev/input/by-id/REPLACE_ME --event-code KEY_F13
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

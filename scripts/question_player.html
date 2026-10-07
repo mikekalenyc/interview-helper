@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__PAGE_TITLE__</title>
+<style>
+:root { color-scheme:dark; font-family:Inter,ui-sans-serif,system-ui,sans-serif; background:#101316; color:#f0f1ef; }
+* { box-sizing:border-box; }
+body { margin:0; }
+main { max-width:1060px; margin:auto; padding:48px 28px 205px; }
+.eyebrow { font-size:12px; letter-spacing:.14em; font-weight:700; text-transform:uppercase; color:#a8d7bc; }
+h1 { font-size:clamp(30px,5vw,48px); letter-spacing:-.04em; line-height:1.12; margin:18px 0; }
+.intro { max-width:720px; color:#b2b8ba; line-height:1.65; }
+.toolbar { display:grid; grid-template-columns:1fr minmax(180px,260px); gap:16px; margin:28px 0 18px; }
+label { display:block; font-size:12px; font-weight:600; color:#b2b8ba; margin-bottom:8px; }
+input,select,button { font:inherit; }
+input,select { width:100%; background:#1c2226; border:1px solid #394146; border-radius:9px; padding:12px; color:#f0f1ef; }
+button { cursor:pointer; border:1px solid #47524d; border-radius:8px; padding:10px 15px; background:#252f29; color:#cfefd9; font-weight:600; }
+button:hover { background:#34493b; }
+button:disabled { opacity:.4; cursor:default; }
+:focus-visible { outline:3px solid #a8d7bc; outline-offset:4px; }
+.count { color:#9aa5a9; font-size:13px; margin:20px 0; }
+.options { display:flex; flex-wrap:wrap; gap:14px; align-items:center; }
+.options label { display:flex; gap:8px; margin:0; font-size:14px; align-items:center; }
+.options input { width:auto; }
+.questions { display:grid; gap:24px; }
+.card { padding:24px; border:1px solid #30383c; border-radius:12px; background:#191e22; min-width:0; }
+.card.active { border-color:#85ba97; }
+.question-row { display:grid; grid-template-columns:36px minmax(0,1fr) auto; gap:16px; align-items:start; }
+.number { color:#a8d7bc; font-variant-numeric:tabular-nums; font-size:18px; }
+.section { color:#a1ada6; font-size:11px; letter-spacing:.05em; text-transform:uppercase; margin-bottom:8px; }
+.question { margin:0; font-size:18px; line-height:1.55; font-weight:600; overflow-wrap:anywhere; }
+.meta { margin-top:8px; color:#8e9b96; font-size:12px; }
+.answer { margin:20px 0 0 52px; padding:18px 20px; border-left:3px solid #536d60; background:#111719; border-radius:0 8px 8px 0; }
+.answer-label { font-size:12px; color:#a8d7bc; font-weight:700; letter-spacing:.04em; text-transform:uppercase; margin:0 0 10px; }
+.answer-text { font-size:16px; line-height:1.7; color:#d1d9d6; overflow-wrap:anywhere; }
+.answer-text p { margin:0 0 12px; }
+.answer-text p:last-child { margin-bottom:0; }
+.answer-text ul,.answer-text ol { margin:8px 0 14px; padding-left:24px; }
+.answer-text pre { white-space:pre-wrap; overflow-wrap:anywhere; font:14px/1.6 ui-monospace,monospace; padding:12px; background:#20282c; border-radius:6px; }
+.answer-text code { font: .92em ui-monospace,monospace; }
+.followup { margin:24px 0 0 52px; border-top:1px solid #35413b; padding-top:22px; }
+.followup .question-row { grid-template-columns:minmax(0,1fr) auto; }
+.followup .answer { margin-left:0; }
+.followup-label { color:#a8d7bc; font-size:13px; font-weight:700; margin-bottom:8px; }
+.answers-hidden .answer { display:none; }
+.empty { padding:36px; text-align:center; color:#b2b8ba; border:1px dashed #394146; border-radius:12px; }
+.dock { position:fixed; bottom:0; left:0; right:0; border-top:1px solid #46564c; background:#161e19; box-shadow:0 -8px 28px #0004; }
+.dock-inner { max-width:1060px; margin:auto; padding:16px 28px; }
+.now { font-size:13px; color:#cfefd9; margin-bottom:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.playback { display:flex; gap:12px; align-items:center; }
+audio { flex:1; min-width:0; height:42px; }
+.speed { display:flex; gap:8px; align-items:center; }
+.speed label { margin:0; }
+.speed select { width:86px; padding:9px; }
+.status { min-height:18px; color:#b7c7bd; font-size:12px; margin-top:8px; }
+@media(max-width:640px) { main { padding:28px 14px 245px; } .toolbar { grid-template-columns:1fr; } .card { padding:16px; } .question-row { grid-template-columns:26px minmax(0,1fr); gap:10px; } .question-row>button { grid-column:2; justify-self:start; } .answer,.followup { margin-left:0; } .answer { padding:14px; } .followup .question-row { grid-template-columns:minmax(0,1fr); } .followup .question-row>button { grid-column:1; } .dock-inner { padding:12px 14px; } .playback { flex-wrap:wrap; gap:8px; } audio { flex-basis:100%; } .speed { margin-left:auto; } .question { font-size:17px; } }
+</style>
+</head>
+<body>
+<main>
+<div class="eyebrow">__EYEBROW__</div>
+<h1>__HEADING__</h1>
+<p class="intro">__INTRO__</p>
+<div class="toolbar">
+<div><label for="search">Find a question or answer</label><input id="search" type="search" placeholder="Search by topic, phrase, or question number…" autocomplete="off"></div>
+<div><label for="category">Topic</label><select id="category"><option value="">All topics</option></select></div>
+</div>
+<div class="options"><label><input id="show-answers" type="checkbox"__ANSWERS_CHECKED__> Show suggested answers</label></div>
+<p id="count" class="count" aria-live="polite"></p>
+<div id="questions" class="questions__LIST_CLASS__"></div>
+</main>
+<div class="dock" role="region" aria-label="Question audio player"><div class="dock-inner">
+<div id="now" class="now">Choose a question to begin</div>
+<div class="playback"><audio id="player" controls preload="none" aria-label="Selected question audio"></audio>
+<button id="replay" type="button" disabled>↺ Replay</button><button id="stop" type="button" disabled>Stop</button>
+<div class="speed"><label for="speed">Speed</label><select id="speed"><option value="0.75">0.75×</option><option value="0.9">0.9×</option><option value="1" selected>1×</option><option value="1.1">1.1×</option><option value="1.25">1.25×</option></select></div></div>
+<div id="status" class="status" role="status" aria-live="polite">Playback starts only when you press Play</div>
+</div></div>
+<script id="questions-data" type="application/json">__QUESTIONS_JSON__</script>
+<script>
+'use strict';
+const questions=JSON.parse(document.getElementById('questions-data').textContent);
+const list=document.getElementById('questions'),search=document.getElementById('search'),category=document.getElementById('category');
+const player=document.getElementById('player'),replay=document.getElementById('replay'),stop=document.getElementById('stop'),speed=document.getElementById('speed'),status=document.getElementById('status');
+let selected=null,playRequest=0;
+const rows=[];
+function el(tag,cls,text){const node=document.createElement(tag);if(cls)node.className=cls;if(text!==undefined)node.textContent=text;return node;}
+function inline(node,text){
+  const pattern=/\*\*([^*]+)\*\*|`([^`]+)`/g;let end=0,match;
+  while((match=pattern.exec(text))!==null){node.append(document.createTextNode(text.slice(end,match.index)));node.append(el(match[1]?'strong':'code','',match[1]||match[2]));end=pattern.lastIndex;}
+  node.append(document.createTextNode(text.slice(end)));
+}
+function renderAnswer(text){
+  const box=el('div','answer');box.append(el('div','answer-label','Suggested answer'));
+  const content=el('div','answer-text');box.append(content);
+  let paragraph=[],code=null,items=null,itemType='';
+  function flush(){if(paragraph.length){const p=el('p');inline(p,paragraph.join(' '));content.append(p);paragraph=[];}}
+  for(const line of String(text).split('\n')){
+    if(line.trim().startsWith('```')){flush();items=null;if(code!==null){content.append(el('pre','',code.join('\n')));code=null;}else code=[];continue;}
+    if(code!==null){code.push(line);continue;}
+    if(!line.trim()){flush();items=null;continue;}
+    const bullet=line.match(/^\s*(?:([-*])|\d+\.)\s+(.+)$/);
+    if(bullet){flush();const kind=bullet[1]?'ul':'ol';if(!items||kind!==itemType){items=el(kind);itemType=kind;content.append(items);}const li=el('li');inline(li,bullet[2]);items.append(li);continue;}
+    items=null;paragraph.push(line);
+  }
+  flush();if(code!==null)content.append(el('pre','',code.join('\n')));
+  return box;
+}
+function durationLabel(v){if(!Number.isFinite(v))return '';const s=Math.round(v);return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;}
+function label(kind){return kind==='followup'?'follow-up':'question';}
+function refreshPlayback(){
+  for(const row of rows){row.element.classList.toggle('active',selected?.question===row.question);
+    for(const item of row.buttons){const active=selected?.question===row.question&&selected.kind===item.kind;const playing=active&&!player.paused&&!player.ended;item.button.textContent=(playing?'Ⅱ Pause ':'▶ Play ')+label(item.kind);item.button.setAttribute('aria-label',`${playing?'Pause':'Play'} ${label(item.kind)} ${row.question.number}`);item.button.setAttribute('aria-pressed',String(playing));}
+  }
+}
+async function startPlayback(){const request=++playRequest;status.textContent='Loading audio…';try{await player.play();if(request===playRequest)status.textContent='Playing · your turn when the recording ends';}catch(error){if(request===playRequest&&error.name!=='AbortError')status.textContent='Could not play this clip. Keep this page beside its audio folder and try again.';}refreshPlayback();}
+function playQuestion(question,kind){
+  const same=selected?.question===question&&selected.kind===kind;
+  if(same&&!player.paused&&!player.ended){++playRequest;player.pause();return;}
+  if(!same){++playRequest;player.pause();selected={question,kind};player.src=kind==='followup'?question.followup_audio:question.audio;player.playbackRate=Number(speed.value);document.getElementById('now').textContent=`${kind==='followup'?'Follow-up':'Question'} ${question.number} · ${kind==='followup'?question.followup_text:question.text}`;replay.disabled=false;stop.disabled=false;}
+  else if(player.ended)player.currentTime=0;
+  void startPlayback();
+}
+for(const section of [...new Set(questions.map(q=>q.section).filter(Boolean))]){const option=el('option','',section);option.value=section;category.append(option);}
+for(const question of questions){
+  const element=el('article','card');element.dataset.number=question.number;
+  const heading=el('div','question-row'),body=el('div');body.append(el('div','section',question.section||'Resume questions'));
+  const title=el('h2','question');inline(title,question.text);body.append(title,el('div','meta',durationLabel(question.duration)));
+  const button=el('button');button.type='button';button.dataset.kind='question';button.addEventListener('click',()=>playQuestion(question,'question'));
+  heading.append(el('div','number',String(question.number).padStart(2,'0')),body,button);element.append(heading);
+  const buttons=[{kind:'question',button}];
+  if(question.answer)element.append(renderAnswer(question.answer));
+  if(question.followup_text){const followup=el('section','followup');followup.append(el('div','followup-label','Follow-up question'));
+    const row=el('div','question-row'),body=el('div'),title=el('h3','question');inline(title,question.followup_text);body.append(title,el('div','meta',durationLabel(question.followup_duration)));
+    const button=el('button');button.type='button';button.dataset.kind='followup';button.addEventListener('click',()=>playQuestion(question,'followup'));row.append(body,button);followup.append(row);
+    if(question.followup_answer)followup.append(renderAnswer(question.followup_answer));element.append(followup);buttons.push({kind:'followup',button});
+  }
+  list.append(element);rows.push({question,element,buttons});
+}
+const empty=el('div','empty','No questions match. Try another search or topic.');list.append(empty);
+function filterQuestions(){const query=search.value.trim().toLocaleLowerCase();let count=0;
+  for(const row of rows){const q=row.question;const matches=(!category.value||q.section===category.value)&&[q.number,q.section,q.text,q.answer,q.followup_text,q.followup_answer].join(' ').toLocaleLowerCase().includes(query);row.element.hidden=!matches;if(matches)count++;}
+  empty.hidden=count>0;document.getElementById('count').textContent=`${count} of ${questions.length} question sets · ${questions.reduce((n,q)=>n+1+(q.followup_audio?1:0),0)} recordings`;
+}
+search.addEventListener('input',filterQuestions);category.addEventListener('change',filterQuestions);
+document.getElementById('show-answers').addEventListener('change',event=>list.classList.toggle('answers-hidden',!event.target.checked));
+speed.addEventListener('change',()=>{player.playbackRate=Number(speed.value);});
+replay.addEventListener('click',()=>{if(selected){player.currentTime=0;void startPlayback();}});
+stop.addEventListener('click',()=>{++playRequest;player.pause();player.currentTime=0;status.textContent='Stopped · play any question when you’re ready';refreshPlayback();});
+player.addEventListener('play',()=>{status.textContent='Playing · your turn when the recording ends';refreshPlayback();});
+player.addEventListener('pause',()=>{status.textContent=player.ended?'Your turn. Play the next question when you’re ready.':'Paused';refreshPlayback();});
+player.addEventListener('ended',()=>{status.textContent='Your turn. Play the next question when you’re ready.';refreshPlayback();});
+player.addEventListener('error',()=>{status.textContent='Audio could not be loaded. Keep this page beside its audio folder.';refreshPlayback();});
+refreshPlayback();filterQuestions();
+</script>
+</body>
+</html>

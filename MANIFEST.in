@@ -1,0 +1,17 @@
+include README.md LICENSE THIRD_PARTY_NOTICES.md pyproject.toml
+include .gitignore .github/workflows/checks.yml
+include docs/SETUP.md docs/PERSONALIZATION.md docs/REQUIREMENTS.md docs/RELEASING.md
+include docs/MODES.md
+recursive-include interview_helper *.py
+recursive-include tests *.py
+recursive-include examples *.md
+include scripts/install_turn_models.py
+include scripts/build_question_audio.py
+include scripts/question_player.html
+include scripts/benchmark_answers.py
+include scripts/prepare_github_release.py
+recursive-include deployment *.example README.md
+prune private
+prune .codex
+prune .git
+global-exclude __pycache__ *.py[cod] *.ses .env .env.* *.wav *.flac *.onnx *.gguf

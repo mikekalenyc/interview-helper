@@ -1,0 +1,44 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+*.py[cod]
+*.wav
+*.flac
+dist/
+build/
+*.egg-info/
+private/
+
+# Credentials, local sessions, and user-provided material
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.ses
+credentials/
+secrets/
+profiles/
+recordings/
+interviews/
+models/
+turn-models/
+*.onnx
+*.gguf
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.mp3
+*.ogg
+*.m4a
+*.mp4
+.coverage
+htmlcov/
+.ruff_cache/
+
+# Local agent state and workstation plans are not release inputs.
+.codex/
+.claude/
+PLAN.md
+technical mode/
