@@ -33,17 +33,21 @@ captured output to avoid echo.
 
 ## 2. Install the local models explicitly
 
-Install the default English Small Streaming Moonshine model:
+Open the application, go to **Setup**, choose a **Transcription model** and
+**Transcription device**, then click **Download selected model**. The app shows
+the approximate download size, progress, cancellation, and installed status.
+It stores verified files locally and reuses them. Selecting a model alone does
+not download it, and an interview never triggers a download.
+
+Start with **Moonshine Small / CPU**. See [model and device choices](MODELS.md)
+for Medium and Nemotron, NVIDIA requirements, and optional GPU detection setup.
+
+For a headless installation, the same explicit downloader is callable in Python:
 
 ```bash
 .venv/bin/python - <<'PY'
-from pathlib import Path
-from moonshine_voice import ModelArch
-from moonshine_voice.download import get_model_for_language
-get_model_for_language(
-    'en', ModelArch.SMALL_STREAMING,
-    cache_root=Path.home() / '.local/share/interview-helper/models',
-)
+from interview_helper.model_catalog import install_model
+print(install_model('moonshine-small'))
 PY
 ```
 
@@ -55,10 +59,12 @@ Install the pinned CPU speech/turn-detection models and their license notices:
 
 This command works in both source and wheel installations. It verifies SHA-256
 hashes and stores files in `~/.local/share/interview-helper/turn-models/`.
+Transcription files are in `~/.local/share/interview-helper/models/`.
 The default Moonshine path ends with
 `download.moonshine.ai/model/small-streaming-en/quantized_26_08_21` beneath the
-model directory above. If the downloader selects a different version, select its
-actual directory in Setup. The app never downloads missing models on startup.
+model directory above. Advanced users may browse to an existing compatible model.
+Select its matching model type; a different model file cannot be made compatible
+just by renaming it. The app never downloads missing models on startup.
 
 ## 3. Prepare personal context
 
@@ -116,6 +122,9 @@ consented test question. Do not infer hardware readiness from passing unit tests
   server is running. A failed `pactl` connection means the session is unavailable.
 - Missing models: run the explicit installation steps above and verify the model
   directory selected in Setup.
+- GPU unavailable: select CPU or install the supported NVIDIA driver/runtime.
+  An explicit GPU request fails visibly if initialization cannot use it; the app
+  does not silently switch transcription or detector inference to CPU.
 - Qt platform/plugin error: check the distribution's Qt/XCB/OpenGL runtime
   packages and launch from a graphical desktop session.
 - No answer: verify that a résumé is selected and the chosen provider is reachable.

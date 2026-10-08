@@ -5,7 +5,7 @@ and suggests short spoken answers using your own résumé, background, and prepa
 Q&A. It also transcribes your microphone so follow-up answers can use what you
 actually said. A separate command-line daemon supports hold-to-transcribe.
 
-**Status:** experimental, version 0.1.1. **License:** proprietary, all rights
+**Status:** experimental, version 0.2.0. **License:** proprietary, all rights
 reserved. Access to this repository does not grant redistribution rights; see
 [LICENSE](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES.md).
 
@@ -15,8 +15,8 @@ reserved. Access to this repository does not grant redistribution rights; see
   plus the `pactl` and `parec` tools.
 - Python 3.11 or newer; Python 3.12 is the current tested development environment.
 - Headphones and a microphone for the desktop workflow.
-- Local Moonshine speech-recognition and Silero/Smart Turn detection models,
-  downloaded explicitly during setup.
+- A local transcription model selected and downloaded in Setup, plus
+  Silero/Smart Turn detection models installed during setup.
 - An answer provider: your own OpenAI API credentials and billing, or a separately
   running local Qwen server with an OpenAI-compatible API.
 - A résumé in UTF-8 text or Markdown to enable suggested answers. Add factual
@@ -42,11 +42,18 @@ the models, select an answer provider, and start your first session. The
 `desktop` extra includes Qt, Moonshine, ONNX Runtime, and Transformers. Starting
 the app does not download models or start recording.
 
+In **Setup**, choose **Transcription model**, choose CPU or NVIDIA GPU when
+supported, then click **Download selected model**. Downloads show progress and
+can be cancelled; installed models are reused. Moonshine Small (about 142 MB)
+remains the CPU default. Moonshine Medium (269 MB) and Nemotron English (700 MB,
+plus its runtime) are also available. See [model and device choices](docs/MODELS.md)
+for hardware requirements, measurements, and the October 2026 comparison.
+
 For a wheel downloaded from this repository's Releases page:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install './interview_helper-0.1.1-py3-none-any.whl[desktop]'
+.venv/bin/python -m pip install './interview_helper-0.2.0-py3-none-any.whl[desktop]'
 ```
 
 The package is not published to PyPI. Wheel users still need the same system
@@ -127,4 +134,4 @@ and the optional user service. Never run the daemon as root.
 Tests use synthetic fixtures and do not require recording, input permissions,
 model downloads, or paid API calls. The GUI tests use Qt's offscreen platform.
 See [release instructions](docs/RELEASING.md) for the curated source export,
-package checks, and private GitHub release process.
+package checks, and GitHub release process.

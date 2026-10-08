@@ -19,7 +19,7 @@ FILES = (
     ".gitignore", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md",
     "pyproject.toml", "MANIFEST.in", ".github/workflows/checks.yml",
     "docs/SETUP.md", "docs/MODES.md", "docs/PERSONALIZATION.md",
-    "docs/REQUIREMENTS.md", "docs/RELEASING.md",
+    "docs/REQUIREMENTS.md", "docs/RELEASING.md", "docs/MODELS.md",
     "scripts/install_turn_models.py", "scripts/build_question_audio.py",
     "scripts/question_player.html", "scripts/benchmark_answers.py",
     "scripts/prepare_github_release.py", "deployment/README.md",

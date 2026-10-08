@@ -118,3 +118,36 @@ def test_openai_model_choice_reaches_cli_application(monkeypatch: pytest.MonkeyP
     assert captured[0].openai_model == "gpt-6-luna"
     with pytest.raises(SystemExit):
         parser().parse_args([*base, "--openai-model", "gpt-6-astra"])
+
+
+@pytest.mark.parametrize("model,device,backend,architecture", [
+    ("moonshine-small", "cpu", "moonshine", "small"),
+    ("moonshine-medium", "cpu", "moonshine", "medium"),
+    ("nemotron-en", "cuda", "nemotron", None),
+])
+def test_compute_options_reach_application(
+    monkeypatch: pytest.MonkeyPatch, model: str, device: str,
+    backend: str, architecture: str | None,
+) -> None:
+    import interview_helper.cli as cli
+    captured = []
+
+    class Application:
+        def __init__(self, config: ApplicationConfig, callbacks: ApplicationCallbacks) -> None:
+            captured.append(config)
+
+        def run(self) -> None:
+            pass
+
+    monkeypatch.setattr(cli, "InterviewApplication", Application)
+    cli.main(["run", "--input-device", "/dev/input/example", "--event-code", "KEY_M",
+              "--transcription-model", model, "--transcription-device", device,
+              "--detection-device", "cuda", "--gpu-device-index", "2", "--model-path", "/models/chosen"])
+    selected = captured[0]
+    assert selected.transcription_backend == backend
+    assert selected.transcription_device == device
+    assert selected.detection_device == "cuda"
+    assert selected.gpu_device_index == 2
+    assert selected.model_path == Path("/models/chosen")
+    if architecture:
+        assert selected.moonshine_architecture == architecture

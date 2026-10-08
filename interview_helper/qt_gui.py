@@ -29,6 +29,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QProgressBar,
+    QScrollArea,
     QSplitter,
     QSizeGrip,
     QStatusBar,
@@ -39,6 +41,10 @@ from PySide6.QtWidgets import (
 )
 
 from interview_helper.openai_client import OPENAI_MODELS
+from interview_helper.model_catalog import (
+    MODEL_CATALOG, ModelSpec, install_model, is_installed,
+    model_path as catalog_model_path, runtime_library_path,
+)
 from interview_helper.application import (
     ApplicationCallbacks,
     ApplicationConfig,
@@ -157,6 +163,8 @@ class CallbackBridge(QObject):
     hotkey_learned = Signal(object)
     hotkey_failed = Signal(str)
     hotkey_cancelled = Signal()
+    model_progress = Signal(int, object, object, str)
+    model_finished = Signal(int, str, str)
 
 
 class MainWindow(QMainWindow):
@@ -217,7 +225,14 @@ class MainWindow(QMainWindow):
         self._hotkey_learning = False
         self._hotkey_cancel = threading.Event()
         self._hotkey_worker: threading.Thread | None = None
+        self._download_active = False
+        self._download_generation = 0
+        self._download_cancel = threading.Event()
+        self._download_worker: threading.Thread | None = None
+        self._window_closed = False
         self._bridge = CallbackBridge()
+        self._bridge.model_progress.connect(self._model_download_progress)
+        self._bridge.model_finished.connect(self._model_download_finished)
         self._bridge.spoken_changed.connect(self._show_run_spoken)
         self._bridge.candidate_partial.connect(self._show_candidate_partial)
         self._bridge.candidate_state.connect(self._show_candidate_state)
@@ -264,10 +279,18 @@ class MainWindow(QMainWindow):
         main_layout = QVBoxLayout(main_tab)
         self.tabs.addTab(main_tab, "Main")
 
+        setup_page = QWidget()
+        setup_page.setObjectName("setupPage")
+        setup_outer = QVBoxLayout(setup_page)
+        setup_outer.setContentsMargins(0, 0, 0, 0)
         setup_tab = QWidget()
         setup_tab.setObjectName("setupPage")
         setup_layout = QVBoxLayout(setup_tab)
-        self.tabs.addTab(setup_tab, "Setup")
+        setup_scroll = QScrollArea()
+        setup_scroll.setWidgetResizable(True)
+        setup_scroll.setWidget(setup_tab)
+        setup_outer.addWidget(setup_scroll, 1)
+        self.tabs.addTab(setup_page, "Setup")
 
         history_tab = QWidget()
         history_tab.setObjectName("historyPage")
@@ -331,8 +354,37 @@ class MainWindow(QMainWindow):
         form.setRowVisible(hotkey_row, False)
         form.setRowVisible(self.event_code, False)
         form.setRowVisible(hotkey_learning, False)
-        self.model_path = self._path_row(form, "Moonshine model", self._browse_model)
+        self.transcription_model = QComboBox()
+        for spec in MODEL_CATALOG:
+            self.transcription_model.addItem(spec.label, spec.id)
+        self.transcription_model.setCurrentIndex(self.transcription_model.findData("moonshine-small"))
+        form.addRow("Transcription model", self.transcription_model)
+        self.transcription_device = QComboBox()
+        form.addRow("Transcription device", self.transcription_device)
+        self.detection_device = QComboBox()
+        self.detection_device.addItem("CPU (recommended)", "cpu")
+        self.detection_device.addItem("NVIDIA GPU (CUDA; GPU installation required)", "cuda")
+        form.addRow("Speech / turn detection", self.detection_device)
+        self.gpu_device_index = QSpinBox()
+        self.gpu_device_index.setRange(0, 31)
+        self.gpu_device_index.setToolTip("Zero selects the first NVIDIA GPU.")
+        form.addRow("GPU index", self.gpu_device_index)
+        form.addRow("Document lookup", QLabel("CPU (recommended)"))
+        self.model_path = self._path_row(form, "Installed model path", self._browse_model)
         self.model_path.setText(str(DEFAULT_MODEL))
+        self.model_description = QLabel()
+        self.model_description.setWordWrap(True)
+        form.addRow(self.model_description)
+        self.model_status = QLabel()
+        self.model_status.setWordWrap(True)
+        form.addRow(self.model_status)
+        self.download_model_button = QPushButton("Download selected model")
+        self.download_model_button.clicked.connect(self._download_model)
+        form.addRow(self.download_model_button)
+        self.transcription_model.currentIndexChanged.connect(self._model_changed)
+        self.transcription_device.currentIndexChanged.connect(self._model_device_changed)
+        self.model_path.textChanged.connect(self._refresh_model_status)
+        self._model_changed(preserve_path=True)
         self.resume = self._path_row(form, "Resume (optional)", self._browse_resume)
 
         context_box = QWidget()
@@ -413,6 +465,18 @@ class MainWindow(QMainWindow):
         self.openai_model.currentIndexChanged.connect(self._provider_changed)
         self.enable_technical_mode.toggled.connect(self._provider_changed)
         setup_layout.addWidget(setup)
+        self.download_status = QLabel()
+        self.download_status.setWordWrap(True)
+        self.download_progress = QProgressBar()
+        self.download_progress.setRange(0, 100)
+        self.download_progress.hide()
+        self.cancel_download_button = QPushButton("Cancel download")
+        self.cancel_download_button.clicked.connect(self._cancel_model_download)
+        self.cancel_download_button.hide()
+        # Keep progress and cancellation visible even when the long form scrolls.
+        setup_outer.addWidget(self.download_status)
+        setup_outer.addWidget(self.download_progress)
+        setup_outer.addWidget(self.cancel_download_button)
         setup_layout.addStretch()
         self.setup_group = setup
 
@@ -576,6 +640,8 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _start(self) -> None:
+        if self._download_active or self._window_closed or self._snapshot.running:
+            return
         try:
             config = self._config()
         except ValueError as error:
@@ -669,7 +735,7 @@ class MainWindow(QMainWindow):
     def _config(self) -> ApplicationConfig:
         model = self.model_path.text().strip()
         if not model:
-            raise ValueError("Moonshine model is required.")
+            raise ValueError("A transcription model path is required; download a model or browse to one.")
         technical_mode = self.enable_technical_mode.isChecked()
         if technical_mode and not self.technical_answers.text().strip():
             raise ValueError("Select a technical answers file or uncheck Enable technical mode.")
@@ -685,6 +751,13 @@ class MainWindow(QMainWindow):
             input_device=None,
             event_code="",
             model_path=Path(model),
+            transcription_backend=self._selected_model().backend,
+            transcription_device=str(self.transcription_device.currentData()),
+            detection_device=str(self.detection_device.currentData()),
+            gpu_device_index=self.gpu_device_index.value(),
+            moonshine_architecture=self._selected_model().architecture,
+            nemotron_library=(runtime_library_path(str(self.transcription_device.currentData()))
+                              if self._selected_model().backend == "nemotron" else None),
             capture_mode=CaptureMode.HEADPHONE_MONITOR,
             control_mode=ControlMode.MANUAL,
             automatic_listening=True,
@@ -1036,9 +1109,9 @@ class MainWindow(QMainWindow):
         active_auto = self._automatic_mode and self._snapshot.running and not self._snapshot.stopping
         self.answer_now_button.setEnabled(active_auto)
         self.cancel_answer_button.setEnabled(active_auto)
-        self.setup_group.setEnabled(not self._snapshot.running)
+        self.setup_group.setEnabled(not self._snapshot.running and not self._download_active)
         self.start_button.setEnabled(
-            not self._snapshot.running and not self._hotkey_learning
+            not self._snapshot.running and not self._hotkey_learning and not self._download_active
         )
         self.interview_done_button.setEnabled(self._snapshot.running)
         if self._snapshot.stopping:
@@ -1106,8 +1179,132 @@ class MainWindow(QMainWindow):
         if path:
             self.input_device.setText(path)
 
+    def _selected_model(self) -> ModelSpec:
+        return next(spec for spec in MODEL_CATALOG
+                    if spec.id == self.transcription_model.currentData())
+
+    def _model_changed(self, _index: int = 0, *, preserve_path: bool = False) -> None:
+        spec = self._selected_model()
+        previous = self.transcription_device.currentData()
+        self.transcription_device.blockSignals(True)
+        self.transcription_device.clear()
+        for device in spec.devices:
+            self.transcription_device.addItem(
+                "CPU" if device == "cpu" else "NVIDIA GPU (CUDA)", device,
+            )
+        if previous in spec.devices:
+            self.transcription_device.setCurrentIndex(self.transcription_device.findData(previous))
+        self.transcription_device.blockSignals(False)
+        if not preserve_path:
+            self.model_path.setText(str(catalog_model_path(spec)))
+        self.model_description.setText(
+            f"{spec.description}\nDownload: approximately {spec.size_bytes / 1_000_000:.0f} MB. "
+            "Moonshine Small on CPU is the current baseline. GPU speed depends on hardware; "
+            "Nemotron's GPU runtime downloads with the model. GPU speech detection needs "
+            "the separate GPU installation. Selection alone never downloads."
+        )
+        self._refresh_model_status()
+
+    def _model_device_changed(self, _index: int = 0) -> None:
+        self._refresh_model_status()
+
+    def _refresh_model_status(self, _text: str = "") -> None:
+        spec = self._selected_model()
+        device = str(self.transcription_device.currentData())
+        installed = is_installed(spec, device=device)
+        selected = Path(self.model_path.text().strip())
+        managed = selected == catalog_model_path(spec)
+        if not managed:
+            status = ("Custom model path exists; compatibility checked at Start Interview."
+                      if selected.exists() else "Custom model path is missing. Browse or download a model.")
+        else:
+            status = ("Installed locally — ready to select." if installed else
+                      "Model or runtime missing — download before starting.")
+        self.model_status.setText(status)
+        self.download_model_button.setText("Use installed model" if installed else "Download selected model")
+
+    @Slot()
+    def _download_model(self) -> None:
+        if self._download_active or self._snapshot.running or self._window_closed:
+            return
+        spec = self._selected_model()
+        device = str(self.transcription_device.currentData())
+        if is_installed(spec, device=device):
+            self.model_path.setText(str(catalog_model_path(spec)))
+            self.download_status.setText("Using the model already installed on this computer.")
+            return
+        self._download_active = True
+        self._download_generation += 1
+        generation = self._download_generation
+        cancel = threading.Event()
+        self._download_cancel = cancel
+        bridge = self._bridge
+        self.download_status.setText(f"Downloading {spec.label}…")
+        self.download_progress.setValue(0)
+        self.download_progress.show()
+        self.cancel_download_button.setEnabled(True)
+        self.cancel_download_button.show()
+        self._render()
+
+        def progress(done: int, total: int, label: str) -> None:
+            if not cancel.is_set():
+                try:
+                    bridge.model_progress.emit(generation, done, total, label)
+                except RuntimeError:  # The window may have been destroyed.
+                    cancel.set()
+
+        def run() -> None:
+            path, error = "", ""
+            try:
+                path = str(install_model(spec.id, device=device, progress=progress, cancel_event=cancel))
+            except Exception as failure:
+                error = str(failure)
+            try:
+                bridge.model_finished.emit(generation, path, error)
+            except RuntimeError:
+                pass
+
+        self._download_worker = threading.Thread(target=run, name="model-download", daemon=True)
+        self._download_worker.start()
+
+    @Slot()
+    def _cancel_model_download(self) -> None:
+        self._download_cancel.set()
+        self.download_status.setText("Cancelling download…")
+        self.cancel_download_button.setEnabled(False)
+
+    @Slot(int, object, object, str)
+    def _model_download_progress(self, generation: int, done: int, total: int, label: str) -> None:
+        if (self._window_closed or generation != self._download_generation
+                or not self._download_active or self._download_cancel.is_set()):
+            return
+        self.download_progress.setRange(0, 100 if total > 0 else 0)
+        if total > 0:
+            self.download_progress.setValue(min(100, max(0, int(done * 100 / total))))
+        self.download_status.setText(f"Downloading {label}: {done / 1_000_000:.1f} MB")
+
+    @Slot(int, str, str)
+    def _model_download_finished(self, generation: int, path: str, error: str) -> None:
+        if self._window_closed or generation != self._download_generation or not self._download_active:
+            return
+        self._download_active = False
+        self.download_progress.hide()
+        self.cancel_download_button.hide()
+        if self._download_cancel.is_set():
+            self.download_status.setText("Download cancelled. You can retry when ready.")
+        elif error or not path:
+            self.download_status.setText(f"Download failed: {error or 'No model was installed.'}")
+        else:
+            self.model_path.setText(path)
+            self.download_status.setText("Download complete. Model stored locally for future use.")
+        self._refresh_model_status()
+        self._render()
+
     def _browse_model(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Select Moonshine model")
+        if self._selected_model().backend == "moonshine":
+            path = QFileDialog.getExistingDirectory(self, "Select Moonshine model directory")
+        else:
+            path, _ = QFileDialog.getOpenFileName(self, "Select Nemotron model", "", "GGUF (*.gguf)")
         if path:
             self.model_path.setText(path)
 
@@ -1172,6 +1369,8 @@ class MainWindow(QMainWindow):
             self.context_paths.takeItem(self.context_paths.row(item))
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        self._window_closed = True
+        self._download_cancel.set()
         if self._hotkey_learning:
             self._hotkey_cancel.set()
         application = self._application

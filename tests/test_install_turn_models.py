@@ -61,3 +61,31 @@ def test_bad_download_preserves_existing_model_and_removes_temporary_file(
         installer.install(tmp_path)
     assert destination.read_bytes() == b"previous model"
     assert list(tmp_path.iterdir()) == [destination]
+
+
+def test_cuda_install_preserves_cpu_models_and_adds_gpu_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model_asset: bytes,
+) -> None:
+    data = b"gpu model"
+    monkeypatch.setattr(installer, "GPU_ASSET", (
+        "gpu.onnx", "https://example.invalid/gpu", hashlib.sha256(data).hexdigest(),
+    ))
+    calls: list[str] = []
+
+    def download(url: str, *, timeout: int) -> io.BytesIO:
+        calls.append(url)
+        return io.BytesIO(data if url.endswith("/gpu") else model_asset)
+
+    monkeypatch.setattr(installer.urllib.request, "urlopen", download)
+    installer.install(tmp_path)
+    installer.install(tmp_path, device="cuda")
+    installer.install(tmp_path, device="cuda")
+    assert calls == ["https://example.invalid/model", "https://example.invalid/gpu"]
+    assert (tmp_path / "model.onnx").read_bytes() == model_asset
+    assert (tmp_path / "gpu.onnx").read_bytes() == data
+
+
+def test_invalid_device_does_not_create_install_directory(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="cpu or cuda"):
+        installer.install(tmp_path / "unused", device="auto")
+    assert not (tmp_path / "unused").exists()

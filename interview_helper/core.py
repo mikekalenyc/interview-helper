@@ -63,6 +63,8 @@ class HoldToTranscribe:
         self._lock = threading.Lock()
         self._state = RuntimeState.IDLE
         self._session: TranscriptionSession | None = None
+        self._finishing_session: TranscriptionSession | None = None
+        self._generation = 0
         self._received_pcm = False
         self._finish_thread: threading.Thread | None = None
 
@@ -78,10 +80,12 @@ class HoldToTranscribe:
                 return False
             self._state = RuntimeState.RECORDING
             self._received_pcm = False
+            self._generation += 1
+            generation = self._generation
             try:
                 self._session = self.transcriber.open_stream(
-                    partial_callback=self.partial_callback,
-                    complete_callback=self._complete,
+                    partial_callback=lambda text: self._partial(text, generation),
+                    complete_callback=lambda result: self._complete(result, generation),
                 )
             except BaseException as error:
                 self._session = None
@@ -100,11 +104,12 @@ class HoldToTranscribe:
             if self._state is not RuntimeState.RECORDING or self._session is None:
                 return
             session = self._session
+            generation = self._generation
             self._received_pcm = True
         try:
             session.add_pcm(pcm, self.sample_rate)
         except BaseException as error:
-            self.abort(error)
+            self.abort(error, generation=generation)
 
     def release(self) -> bool:
         """Finish asynchronously; return false for a stray release."""
@@ -113,6 +118,8 @@ class HoldToTranscribe:
                 return False
             session = self._session
             self._session = None
+            self._finishing_session = session
+            generation = self._generation
             received_pcm = self._received_pcm
             self._state = RuntimeState.TRANSCRIBING
         self.state_callback(RuntimeState.TRANSCRIBING)
@@ -121,39 +128,56 @@ class HoldToTranscribe:
             try:
                 if received_pcm:
                     session.finish()
-                    self._return_idle()
+                    self._return_idle(generation)
                 else:
                     session.close()
-                    self._return_idle()
+                    self._return_idle(generation)
             except BaseException as error:
                 try:
                     session.close()
                 finally:
-                    self._fail(error)
+                    self._fail(error, generation)
+            finally:
+                with self._lock:
+                    if self._finishing_session is session:
+                        self._finishing_session = None
 
         thread = threading.Thread(target=finish, name="transcription-finish", daemon=True)
         self._finish_thread = thread
         thread.start()
         return True
 
-    def abort(self, error: BaseException) -> None:
+    def abort(self, error: BaseException, *, generation: int | None = None) -> None:
         with self._lock:
+            if generation is not None and generation != self._generation:
+                return
             session = self._session
+            finishing = self._finishing_session
             self._session = None
-        if session is not None:
+            self._finishing_session = None
+            self._generation += 1
+            generation = self._generation
+        for active in (session, finishing):
+            if active is None:
+                continue
             try:
-                session.close()
+                active.close()
             except BaseException:
                 pass
-        self._fail(error)
+        self._fail(error, generation)
 
     def close(self) -> None:
         with self._lock:
             session = self._session
+            finishing = self._finishing_session
             self._session = None
+            self._finishing_session = None
+            self._generation += 1
             self._state = RuntimeState.CLOSED
         if session is not None:
             session.close()
+        if finishing is not None:
+            finishing.close()
         self.state_callback(RuntimeState.CLOSED)
 
     def wait_until_idle(self, timeout: float = 5.0) -> bool:
@@ -164,26 +188,39 @@ class HoldToTranscribe:
             time.sleep(0.01)
         return self.state is RuntimeState.IDLE
 
-    def _complete(self, transcript: Transcript) -> None:
+    def _partial(self, text: str, generation: int) -> None:
+        with self._lock:
+            if generation != self._generation or self._state is RuntimeState.CLOSED:
+                return
+        self.partial_callback(text)
+
+    def _complete(self, transcript: Transcript, generation: int) -> None:
+        with self._lock:
+            if generation != self._generation or self._state is RuntimeState.CLOSED:
+                return
         text = transcript.text.strip()
         if text:
             self.transcript_callback(
                 Transcript(text=text, transcription_seconds=transcript.transcription_seconds)
             )
-        self._return_idle()
+        # The finishing thread returns to idle after finish() itself returns.
 
-    def _return_idle(self) -> None:
+    def _return_idle(self, generation: int | None = None) -> None:
         with self._lock:
+            if generation is not None and generation != self._generation:
+                return
             if self._state in {RuntimeState.CLOSED, RuntimeState.IDLE}:
                 return
             self._state = RuntimeState.IDLE
         self.state_callback(RuntimeState.IDLE)
 
-    def _fail(self, error: BaseException) -> None:
+    def _fail(self, error: BaseException, generation: int | None = None) -> None:
         with self._lock:
+            if generation is not None and generation != self._generation:
+                return
             if self._state in {RuntimeState.CLOSED, RuntimeState.IDLE}:
                 return
             self._state = RuntimeState.ERROR
         self.state_callback(RuntimeState.ERROR)
         self.error_callback(error)
-        self._return_idle()
+        self._return_idle(generation)

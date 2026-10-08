@@ -66,7 +66,7 @@ class MoonshineSession:
     def _event(self, event: object) -> None:
         line = getattr(event, "line", None)
         text = str(getattr(line, "text", "")).strip()
-        if not text or self.completed:
+        if not text or self.completed or self.closed:
             return
         line_id = getattr(line, "line_id", None)
         key: object = line_id if line_id is not None else ("text", text)
@@ -125,7 +125,7 @@ class MoonshineTranscriber:
                 raise MoonshineError(f"Moonshine model is missing: {config.model_path}")
             transcriber = Transcriber(
                 config.model_path,
-                ModelArch.SMALL_STREAMING,
+                ModelArch.SMALL_STREAMING if config.architecture == "small" else ModelArch.MEDIUM_STREAMING,
                 update_interval=config.update_interval_seconds,
                 options={"return_audio_data": "false"},
             )

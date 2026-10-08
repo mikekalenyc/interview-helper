@@ -1,8 +1,9 @@
-# Preparing a private release
+# Preparing a release
 
-Initial distribution is private GitHub plus a wheel and source archive. Original
-code is all rights reserved. Do not publish to PyPI or change repository visibility
-as part of a routine build. The initial repository is
+Distribution uses GitHub plus a wheel and source archive. Original
+code is all rights reserved. The owner currently requests public visibility;
+public access does not change the proprietary license. Do not publish to PyPI
+or change repository visibility as part of a routine build. The repository is
 `mikekalenyc/interview-helper`.
 
 ## Curated export
@@ -60,14 +61,14 @@ it does not capture hardware audio, fetch models, or make paid model calls.
 
 ## Upload
 
-Review the clean export and commit it on `main`. Create the repository explicitly
-as private, push that commit, and verify GitHub reports private visibility.
-Tag the tested commit with the version in `pyproject.toml` (currently `v0.1.1`)
-for an experimental prerelease. The initial `v0.1.0` remains available; `v0.1.1`
-fixes fresh CI Qt dependencies and optional-library type checking. Attach the built
+Review the clean export and commit it on `main`. Push that commit and verify
+GitHub reports the owner's requested visibility (currently public).
+Tag the tested commit with the version in `pyproject.toml` (currently `v0.2.0`)
+for an experimental prerelease. Earlier tags remain available and are not
+rewritten. Version 0.2.0 adds model downloads and compute choices. Attach the built
 wheel, source archive, and a SHA-256 checksums file; do not attach profiles or
 model weights. Confirm remote commit/tag IDs and attached asset names afterward.
 
 Report local test/build results separately from GitHub Actions results and
-physical/audio qualification. A private upload and passing CI do not establish
+physical/audio qualification. An upload and passing CI do not establish
 overall answer accuracy or production readiness.

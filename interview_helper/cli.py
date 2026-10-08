@@ -45,7 +45,13 @@ def parser() -> argparse.ArgumentParser:
     run = subcommands.add_parser("run", help="run the hold-to-transcribe daemon")
     run.add_argument("--input-device", type=Path, required=True)
     run.add_argument("--event-code", required=True, help="for example KEY_F13 or BTN_SIDE")
-    run.add_argument("--model-path", type=Path, default=DEFAULT_MODEL)
+    run.add_argument("--model-path", type=Path, help="installed model path; never downloads during an interview")
+    run.add_argument("--transcription-model", choices=("moonshine-small", "moonshine-medium", "nemotron-en"), default="moonshine-small")
+    run.add_argument("--transcription-device", choices=("cpu", "cuda"), default="cpu")
+    run.add_argument("--detection-device", choices=("cpu", "cuda"), default="cpu",
+                     help="speech/turn detection device (used by automatic listening)")
+    run.add_argument("--gpu-device-index", type=int, default=0)
+    run.add_argument("--nemotron-library", type=Path, help="optional installed NeMo-Speech.cpp ASR library path")
     run.add_argument(
         "--keyterm",
         action="append",
@@ -98,11 +104,19 @@ def main(argv: list[str] | None = None) -> None:
             raise ContextError("--technical-answers requires --resume")
         if args.answer_max_tokens <= 0:
             raise ValueError("--answer-max-tokens must be positive")
+        from interview_helper.model_catalog import MODEL_CATALOG, model_path
+        selected_model = next(model for model in MODEL_CATALOG if model.id == args.transcription_model)
         application = InterviewApplication(
             ApplicationConfig(
                 input_device=args.input_device,
                 event_code=args.event_code,
-                model_path=args.model_path,
+                model_path=args.model_path or model_path(selected_model),
+                transcription_backend=selected_model.backend,
+                moonshine_architecture=selected_model.architecture,
+                transcription_device=args.transcription_device,
+                detection_device=args.detection_device,
+                gpu_device_index=args.gpu_device_index,
+                nemotron_library=args.nemotron_library,
                 keyterms=tuple(args.keyterm),
                 resume=args.resume,
                 context=tuple(args.context),
@@ -127,7 +141,7 @@ def main(argv: list[str] | None = None) -> None:
             ),
         )
         application.run()
-    except (CaptureError, ContextError, InputError, MoonshineError, QwenError, ValueError) as error:
+    except (CaptureError, ContextError, InputError, MoonshineError, QwenError, ValueError, RuntimeError) as error:
         print(f"interview-helper: {error}", file=sys.stderr)
         raise SystemExit(2) from error
 

@@ -1,7 +1,7 @@
 include README.md LICENSE THIRD_PARTY_NOTICES.md pyproject.toml
 include .gitignore .github/workflows/checks.yml
 include docs/SETUP.md docs/PERSONALIZATION.md docs/REQUIREMENTS.md docs/RELEASING.md
-include docs/MODES.md
+include docs/MODES.md docs/MODELS.md
 recursive-include interview_helper *.py
 recursive-include tests *.py
 recursive-include examples *.md

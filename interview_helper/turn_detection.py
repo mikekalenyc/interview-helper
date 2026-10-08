@@ -1,4 +1,4 @@
-"""Optional, local CPU speech and end-of-turn inference; never downloads at runtime.
+"""Optional, local CPU/CUDA speech and end-of-turn inference; never downloads at runtime.
 
 Smart Turn preprocessing follows pipecat-ai/smart-turn inference.py/audio_utils.py
 (BSD-2-Clause, Copyright (c) 2024–2025 Daily). Silero recurrent/context handling
@@ -55,7 +55,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable
+import json
+import tempfile
 from pathlib import Path
 from typing import Any, Protocol, cast
 
@@ -65,6 +68,7 @@ from numpy.typing import NDArray
 DEFAULT_MODEL_DIRECTORY = Path.home() / ".local/share/interview-helper/turn-models"
 DEFAULT_SILERO_MODEL = DEFAULT_MODEL_DIRECTORY / "silero-v6.2.onnx"
 DEFAULT_SMART_TURN_MODEL = DEFAULT_MODEL_DIRECTORY / "smart-turn-v3.2-cpu.onnx"
+DEFAULT_SMART_TURN_CUDA_MODEL = DEFAULT_MODEL_DIRECTORY / "smart-turn-v3.2-gpu.onnx"
 
 
 class InferenceSession(Protocol):
@@ -75,26 +79,84 @@ class FeatureExtractor(Protocol):
     def __call__(self, audio: NDArray[np.float32], **kwargs: Any) -> Any: ...
 
 
-def _session(path: Path) -> InferenceSession:
+def _validate_device(device: str, device_index: int) -> None:
+    if (device not in {"cpu", "cuda"} or isinstance(device_index, bool)
+            or not isinstance(device_index, int) or device_index < 0):
+        raise ValueError("Detector device must be cpu or cuda with a nonnegative device index")
+
+
+class _RuntimeSession:
+    """Expose measured placement without claiming all operations execute on CUDA."""
+
+    def __init__(self, session: Any, counts: dict[str, int]) -> None:
+        self._session = session
+        self.provider_node_counts = counts
+        self.execution_providers = tuple(session.get_providers())
+
+    def run(self, output_names: None, input_feed: dict[str, Any]) -> list[Any]:
+        return cast(list[Any], self._session.run(output_names, input_feed))
+
+
+def _session(path: Path, device: str, device_index: int,
+             probe: dict[str, Any]) -> InferenceSession:
+    _validate_device(device, device_index)
     if not path.is_file():
-        raise RuntimeError(
-            f"Automatic listening model is missing: {path}. Run "
-            "interview-helper-install-turn-models."
-        )
+        command = "interview-helper-install-turn-models" + (" --device cuda" if device == "cuda" else "")
+        raise RuntimeError(f"Automatic listening model is missing: {path}. Run {command}.")
     try:
         import onnxruntime as ort
     except ImportError as error:
+        package = "onnxruntime-gpu" if device == "cuda" else "onnxruntime"
         raise RuntimeError(
-            "Automatic listening needs ONNX Runtime. Install with "
-            "python -m pip install 'onnxruntime>=1.20,<2' 'transformers>=4.45,<5' in the app environment."
+            f"Automatic listening needs {package}. Install the matching automatic dependencies "
+            "in the app environment; CPU and GPU ONNX Runtime packages must not coexist."
         ) from error
+    if device == "cuda" and "CUDAExecutionProvider" not in ort.get_available_providers():
+        raise RuntimeError("CUDAExecutionProvider is unavailable; use a compatible onnxruntime-gpu environment")
+    if device == "cuda":
+        preload = getattr(ort, "preload_dlls", None)
+        if preload is not None:
+            preload(directory="")
     options = ort.SessionOptions()
     options.intra_op_num_threads = 1
     options.inter_op_num_threads = 1
     options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-    return ort.InferenceSession(  # type: ignore[no-any-return]
-        str(path), sess_options=options, providers=["CPUExecutionProvider"]
-    )
+    if device == "cpu":
+        session = ort.InferenceSession(str(path), sess_options=options, providers=["CPUExecutionProvider"])
+        return _RuntimeSession(session, {})
+    # Profile exactly one synthetic initialization call, never recorded audio.
+    # CPU shape/control operators are allowed and reported; zero CUDA compute
+    # kernels is an error even when the CUDA provider was successfully registered.
+    with tempfile.TemporaryDirectory(prefix="interview-helper-ort-") as directory:
+        options.enable_profiling = True
+        options.profile_file_prefix = str(Path(directory) / "placement")
+        try:
+            session = ort.InferenceSession(
+                str(path), sess_options=options,
+                providers=[("CUDAExecutionProvider", {"device_id": device_index}), "CPUExecutionProvider"],
+            )
+            session.disable_fallback()
+            if "CUDAExecutionProvider" not in session.get_providers():
+                raise RuntimeError("ONNX Runtime fell back to CPU while initializing CUDA")
+            try:
+                session.run(None, probe)
+            finally:
+                profile_path = session.end_profiling()
+            events = json.loads(Path(profile_path).read_text(encoding="utf-8"))
+            counts: Counter[str] = Counter()
+            cuda_compute = 0
+            for event in events:
+                args = event.get("args", {})
+                provider = args.get("provider")
+                if event.get("cat") == "Node" and provider:
+                    counts[provider] += 1
+                    if provider == "CUDAExecutionProvider" and not str(args.get("op_name", "")).startswith("Memcpy"):
+                        cuda_compute += 1
+            if not cuda_compute:
+                raise RuntimeError("CUDA requested but initialization profiling found no CUDA compute operators")
+            return _RuntimeSession(session, dict(counts))
+        except Exception as error:
+            raise RuntimeError(f"Cannot initialize detector on CUDA device {device_index}: {error}") from error
 
 
 def _samples(pcm: bytes) -> NDArray[np.float32]:
@@ -115,8 +177,16 @@ class SileroSpeechDetector:
     """
 
     def __init__(self, model_path: Path | None = None, *,
-                 session: InferenceSession | None = None) -> None:
-        self._session = session if session is not None else _session(model_path or DEFAULT_SILERO_MODEL)
+                 session: InferenceSession | None = None,
+                 device: str = "cpu", device_index: int = 0) -> None:
+        _validate_device(device, device_index)
+        self._session = session if session is not None else _session(
+            model_path or DEFAULT_SILERO_MODEL, device, device_index,
+            {"input": np.zeros((1, 576), dtype=np.float32),
+             "state": np.zeros((2, 1, 128), dtype=np.float32), "sr": np.array(16000, dtype=np.int64)},
+        )
+        self.provider_node_counts = dict(getattr(self._session, "provider_node_counts", {}))
+        self.execution_providers = tuple(getattr(self._session, "execution_providers", ()))
         self.reset()
 
     def reset(self) -> None:
@@ -148,15 +218,23 @@ class SmartTurnDetector:
 
     def __init__(self, model_path: Path | None = None, *,
                  session: InferenceSession | None = None,
-                 feature_extractor: FeatureExtractor | None = None) -> None:
-        self._session = session if session is not None else _session(model_path or DEFAULT_SMART_TURN_MODEL)
+                 feature_extractor: FeatureExtractor | None = None,
+                 device: str = "cpu", device_index: int = 0) -> None:
+        _validate_device(device, device_index)
+        default_model = DEFAULT_SMART_TURN_CUDA_MODEL if device == "cuda" else DEFAULT_SMART_TURN_MODEL
+        self._session = session if session is not None else _session(
+            model_path or default_model, device, device_index,
+            {"input_features": np.zeros((1, 80, 800), dtype=np.float32)},
+        )
+        self.provider_node_counts = dict(getattr(self._session, "provider_node_counts", {}))
+        self.execution_providers = tuple(getattr(self._session, "execution_providers", ()))
         if feature_extractor is None:
             try:
                 from transformers import WhisperFeatureExtractor
             except ImportError as error:
                 raise RuntimeError(
                     "Automatic listening needs Whisper audio features. Install with "
-                    "python -m pip install 'onnxruntime>=1.20,<2' 'transformers>=4.45,<5' in the app environment."
+                    "python -m pip install 'transformers>=4.45,<5' in the app environment."
                 ) from error
             extractor_factory = cast(Callable[..., FeatureExtractor], WhisperFeatureExtractor)
             feature_extractor = extractor_factory(chunk_length=8)

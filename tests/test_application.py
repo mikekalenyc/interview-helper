@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -253,3 +254,87 @@ def test_unverified_openai_model_is_rejected() -> None:
     from dataclasses import replace
     with pytest.raises(ValueError, match="Unsupported OpenAI model"):
         replace(config(), openai_model="gpt-6-astra")
+
+
+@pytest.mark.parametrize("changes", [
+    {"transcription_backend": "unknown"},
+    {"transcription_device": "auto"},
+    {"detection_device": "metal"},
+    {"transcription_device": "cuda"},
+    {"gpu_device_index": -1},
+    {"gpu_device_index": True},
+    {"gpu_device_index": 0.5},
+    {"moonshine_architecture": "large"},
+])
+def test_unsupported_compute_choices_fail_before_runtime(changes: dict[str, object]) -> None:
+    with pytest.raises(ValueError):
+        replace(config(), **changes)
+
+
+def test_moonshine_medium_and_gpu_detection_are_independent(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = []
+    monkeypatch.setattr(application_module, "MoonshineTranscriber",
+                        lambda configuration: captured.append(configuration) or object())
+    detector_calls = []
+    monkeypatch.setattr(application_module, "SileroSpeechDetector",
+                        lambda **kwargs: detector_calls.append(kwargs) or "vad")
+    monkeypatch.setattr(application_module, "SmartTurnDetector",
+                        lambda **kwargs: detector_calls.append(kwargs) or "turn")
+    app = InterviewApplication(replace(config(), moonshine_architecture="medium",
+                                       detection_device="cuda", gpu_device_index=2))
+    first = app._create_transcriber()
+    second = app._create_transcriber()
+    assert first is not second
+    assert captured[0].architecture == "medium"
+    assert captured[0].model_path == config().model_path
+    assert app._create_detectors() == ("vad", "turn")
+    assert detector_calls == [{"device": "cuda", "device_index": 2}] * 2
+
+
+def test_nemotron_shares_model_and_closes_after_stream_engines(monkeypatch: pytest.MonkeyPatch) -> None:
+    import interview_helper.nemotron as native
+    calls = []
+    closed = []
+
+    class Native:
+        def __init__(self, path: Path, **kwargs: object) -> None:
+            calls.append((path, kwargs))
+
+        def close(self) -> None:
+            closed.append("model")
+
+    class Engine:
+        def close(self) -> None:
+            closed.append("engine")
+
+    monkeypatch.setattr(native, "NemotronTranscriber", Native)
+    configured = replace(config(), transcription_backend="nemotron", transcription_device="cuda",
+                         gpu_device_index=1, nemotron_library=Path("/runtime/lib.so"))
+    app = InterviewApplication(configured)
+    assert app._create_transcriber() is app._create_transcriber()
+    assert calls == [(config().model_path, {"library_path": Path("/runtime/lib.so"),
+                                          "device": "cuda", "device_index": 1, "keyterms": ()})]
+    app._automatic_engine = Engine()
+    app._candidate_engine = Engine()
+    app._close_resources()
+    app._close_resources()
+    assert closed == ["engine", "engine", "model"]
+
+
+def test_transcriber_is_released_when_detector_startup_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    closed = []
+
+    class Model:
+        def close(self) -> None:
+            closed.append("model")
+
+    def fail() -> None:
+        raise RuntimeError("detector missing")
+
+    monkeypatch.setattr(application_module, "MoonshineTranscriber", lambda _: Model())
+    monkeypatch.setattr(application_module, "SileroSpeechDetector", fail)
+    app = InterviewApplication(replace(config(), automatic_listening=True))
+    with pytest.raises(RuntimeError, match="detector missing"):
+        app.run()
+    assert closed == ["model"]
+    assert not app.running

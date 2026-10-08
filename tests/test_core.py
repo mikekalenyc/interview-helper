@@ -129,3 +129,100 @@ def test_transcription_finishes_off_the_input_thread() -> None:
     assert engine.state is RuntimeState.TRANSCRIBING
     allow_finish.set()
     assert engine.wait_until_idle()
+
+
+def test_close_cancels_finishing_session_and_rejects_late_result() -> None:
+    started = threading.Event()
+    allow_finish = threading.Event()
+    ended = threading.Event()
+    transcripts: list[Transcript] = []
+    states: list[RuntimeState] = []
+
+    class BlockingSession(Session):
+        def finish(self) -> None:
+            started.set()
+            assert allow_finish.wait(timeout=2)
+            super().finish()
+            ended.set()
+
+    class BlockingTranscriber(Transcriber):
+        def open_stream(self, **callbacks: object) -> Session:
+            session = BlockingSession(callbacks["complete_callback"])
+            self.sessions.append(session)
+            return session
+
+    transcriber = BlockingTranscriber()
+    engine = HoldToTranscribe(transcriber, sample_rate=16000,
+                             transcript_callback=transcripts.append,
+                             state_callback=states.append)
+    assert engine.press()
+    engine.add_pcm(b"pcm0")
+    assert engine.release()
+    assert started.wait(timeout=1)
+    engine.close()
+    assert transcriber.sessions[0].closed == 1
+    allow_finish.set()
+    assert ended.wait(timeout=1)
+    engine._finish_thread.join(timeout=1)
+    assert transcripts == []
+    assert states[-1] is RuntimeState.CLOSED
+    assert engine.state is RuntimeState.CLOSED
+
+
+def test_aborted_finish_cannot_deliver_to_or_reset_a_new_recording() -> None:
+    started = threading.Event()
+    allow_finish = threading.Event()
+    transcripts: list[Transcript] = []
+
+    class BlockingSession(Session):
+        def finish(self) -> None:
+            started.set()
+            assert allow_finish.wait(timeout=2)
+            super().finish()
+
+    class BlockingTranscriber(Transcriber):
+        def open_stream(self, **callbacks: object) -> Session:
+            session = BlockingSession(callbacks["complete_callback"])
+            self.sessions.append(session)
+            return session
+
+    transcriber = BlockingTranscriber()
+    engine = HoldToTranscribe(transcriber, sample_rate=16000,
+                             transcript_callback=transcripts.append)
+    assert engine.press()
+    engine.add_pcm(b"pcm0")
+    assert engine.release()
+    assert started.wait(timeout=1)
+    engine.abort(RuntimeError("capture lost"))
+    assert transcriber.sessions[0].closed == 1
+    assert engine.press()
+    allow_finish.set()
+    engine._finish_thread.join(timeout=1)
+    assert transcripts == []
+    assert engine.state is RuntimeState.RECORDING
+    engine.close()
+
+
+def test_final_callback_does_not_allow_new_recording_before_finish_returns() -> None:
+    callback_sent = threading.Event()
+    allow_return = threading.Event()
+
+    class BlockingSession(Session):
+        def finish(self) -> None:
+            super().finish()
+            callback_sent.set()
+            assert allow_return.wait(timeout=2)
+
+    class BlockingTranscriber(Transcriber):
+        def open_stream(self, **callbacks: object) -> Session:
+            return BlockingSession(callbacks["complete_callback"])
+
+    engine = HoldToTranscribe(BlockingTranscriber(), sample_rate=16000,
+                             transcript_callback=lambda _result: None)
+    assert engine.press()
+    engine.add_pcm(b"pcm0")
+    assert engine.release()
+    assert callback_sent.wait(timeout=1)
+    assert not engine.press()
+    allow_return.set()
+    assert engine.wait_until_idle()

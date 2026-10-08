@@ -47,9 +47,12 @@ class MoonshineConfig:
     model_path: Path
     update_interval_seconds: float = 0.2
     keyterms: tuple[str, ...] = ()
+    architecture: str = "small"
 
     def __post_init__(self) -> None:
         if self.update_interval_seconds <= 0:
             raise ValueError("Moonshine update interval must be positive")
         if any(not term.strip() for term in self.keyterms):
             raise ValueError("Moonshine keyterms cannot be blank")
+        if self.architecture not in {"small", "medium"}:
+            raise ValueError("Moonshine architecture must be small or medium")

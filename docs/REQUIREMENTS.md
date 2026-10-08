@@ -1,7 +1,8 @@
 # Distribution and user requirements
 
-The initial delivery is a private GitHub repository and Python wheel/source
-distribution, with all rights reserved for original project code. It is an
+Delivery is a public GitHub repository and Python wheel/source distribution,
+with all rights reserved for original project code. Public visibility grants
+no additional license to the code. It is an
 experimental Linux application, not a frozen executable or production guarantee.
 
 ## Required from each user
@@ -23,6 +24,9 @@ interview history is part of the distributable example profile.
 ## Implemented capabilities
 
 - Explicit session start/stop with visible local dual-source transcription.
+- Local model picker with explicit downloads, progress/cancel, verified files,
+  installed reuse, and supported CPU/NVIDIA transcription options. Speech/turn
+  detection has an independent CPU/CUDA choice; document lookup stays on CPU.
 - General mode with bounded factual retrieval; technical mode with complete
   prepared Q&A up to 40,000 characters.
 - Local or OpenAI answer provider, one streamed request per accepted question.
@@ -41,7 +45,8 @@ release does not imply they are already supported.
    Style must never supply personal facts or override accuracy. Verify against
    held-out questions and unknown-experience cases before claiming style matching.
 2. **Persistent profiles and first-run setup.** Save selected context/provider/device
-   paths and provide explicit model-install actions and readiness diagnostics.
+   paths and provide broader readiness diagnostics. Transcription-model download
+   actions already exist; detection-model installation uses the setup command.
    Avoid storing raw credentials in ordinary profile files.
 3. **Distribution beyond Python.** Decide on supported distributions/architectures,
    dependency versions, desktop shortcut installation, upgrades, and eventual

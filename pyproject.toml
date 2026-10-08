@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "interview-helper"
-version = "0.1.1"
+version = "0.2.0"
 description = "Linux interview assistant with local transcription and personalized answer context"
 readme = "README.md"
 license = "LicenseRef-Proprietary"
@@ -34,6 +34,15 @@ input = ["evdev>=1.7,<2"]
 moonshine = ["moonshine-voice==0.1.5"]
 gui = ["PySide6>=6.7,<7"]
 automatic = ["onnxruntime>=1.20,<2", "transformers>=4.45,<5"]
+# Install GPU support in a fresh environment; do not combine with desktop or
+# automatic, whose CPU onnxruntime distribution shares the same import package.
+gpu-desktop = [
+  "PySide6>=6.7,<7",
+  "moonshine-voice==0.1.5",
+  "onnxruntime-gpu==1.26.0",
+  "transformers>=4.45,<5",
+  "torch==2.8.0",
+]
 dev = [
   "mypy>=1.11,<2",
   "pytest>=8,<9",

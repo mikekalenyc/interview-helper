@@ -22,7 +22,7 @@ from interview_helper.capture import (
 )
 from interview_helper.config import AudioConfig, MoonshineConfig
 from interview_helper.context import CandidateProfile, ContextError, TechnicalAnswers
-from interview_helper.core import HoldToTranscribe, RuntimeState, Transcript
+from interview_helper.core import HoldToTranscribe, RuntimeState, StreamingTranscriber, Transcript
 from interview_helper.daemon import HoldControl, InterviewDaemon, TranscriptionEngine
 from interview_helper.input import EvdevHoldControl, ManualHoldControl
 from interview_helper.moonshine import MoonshineTranscriber
@@ -74,8 +74,24 @@ class ApplicationConfig:
     openai_api_key_file: Path | None = None
     openai_model: str = OPENAI_MODEL
     technical_answers: Path | None = None
+    transcription_backend: str = "moonshine"
+    transcription_device: str = "cpu"
+    detection_device: str = "cpu"
+    gpu_device_index: int = 0
+    moonshine_architecture: str = "small"
+    nemotron_library: Path | None = None
 
     def __post_init__(self) -> None:
+        if self.transcription_backend not in {"moonshine", "nemotron"}:
+            raise ValueError("Transcription model must use Moonshine or Nemotron")
+        if self.transcription_device not in {"cpu", "cuda"} or self.detection_device not in {"cpu", "cuda"}:
+            raise ValueError("Compute device must be cpu or cuda")
+        if self.transcription_backend == "moonshine" and self.transcription_device != "cpu":
+            raise ValueError("Moonshine uses CPU; choose Nemotron for NVIDIA GPU transcription")
+        if isinstance(self.gpu_device_index, bool) or not isinstance(self.gpu_device_index, int) or self.gpu_device_index < 0:
+            raise ValueError("GPU device index must be a nonnegative integer")
+        if self.transcription_backend == "moonshine" and self.moonshine_architecture not in {"small", "medium"}:
+            raise ValueError("Moonshine architecture must be small or medium")
         if self.listen_to_candidate and (
             not self.automatic_listening or self.capture_mode is not CaptureMode.HEADPHONE_MONITOR
         ):
@@ -148,6 +164,40 @@ class InterviewApplication:
         self._manual_control: ManualHoldControl | None = None
         self._automatic_engine: AutomaticTranscriber | None = None
         self._library: TechnicalLibrary | None = None
+        self._transcribers: list[StreamingTranscriber] = []
+        self._shared_transcriber: StreamingTranscriber | None = None
+
+    def _create_transcriber(self) -> StreamingTranscriber:
+        if self.config.transcription_backend == "nemotron":
+            if self._shared_transcriber is None:
+                from interview_helper.model_catalog import runtime_library_path
+                from interview_helper.nemotron import NemotronTranscriber
+                self._shared_transcriber = NemotronTranscriber(
+                    self.config.model_path,
+                    library_path=self.config.nemotron_library or runtime_library_path(self.config.transcription_device),
+                    device=self.config.transcription_device,
+                    device_index=self.config.gpu_device_index,
+                    keyterms=self.config.keyterms,
+                )
+                self._transcribers.append(self._shared_transcriber)
+            return self._shared_transcriber
+        transcriber = MoonshineTranscriber(MoonshineConfig(
+            model_path=self.config.model_path, keyterms=self.config.keyterms,
+            architecture=self.config.moonshine_architecture,
+        ))
+        self._transcribers.append(transcriber)
+        return transcriber
+
+    def _create_detectors(self) -> tuple[SileroSpeechDetector, SmartTurnDetector]:
+        if self.config.detection_device == "cpu":
+            return SileroSpeechDetector(), SmartTurnDetector()
+        speech = SileroSpeechDetector(device="cuda", device_index=self.config.gpu_device_index)
+        turn = SmartTurnDetector(device="cuda", device_index=self.config.gpu_device_index)
+        self.callbacks.status(
+            f"Speech detection: GPU {self.config.gpu_device_index} verified; "
+            "audio preparation and some control operations use CPU."
+        )
+        return speech, turn
 
     @property
     def running(self) -> bool:
@@ -297,19 +347,20 @@ class InterviewApplication:
                 spoken_conversation=self.spoken_conversation if self.config.listen_to_candidate else None,
                 technical_answers=technical_answers,
             )
-        transcriber = MoonshineTranscriber(
-            MoonshineConfig(
-                model_path=self.config.model_path,
-                keyterms=self.config.keyterms,
-            )
+        self.callbacks.status(f"Loading {self.config.transcription_backend.title()} on {self.config.transcription_device.upper()}…")
+        transcriber = self._create_transcriber()
+        self.callbacks.status(
+            f"Transcription: {self.config.transcription_backend.title()} / {self.config.transcription_device.upper()} "
+            f"· Speech detection: {self.config.detection_device.upper()} · Document lookup: CPU"
         )
         engine: TranscriptionEngine
         if self.config.automatic_listening:
             self.callbacks.status("Loading local hands-free detectors…")
+            speech_detector, turn_detector = self._create_detectors()
             self._automatic_engine = AutomaticTranscriber(
                 transcriber,
-                speech_detector=SileroSpeechDetector(),
-                turn_detector=SmartTurnDetector(),
+                speech_detector=speech_detector,
+                turn_detector=turn_detector,
                 transcript_callback=on_transcript,
                 partial_callback=self.callbacks.partial,
                 state_callback=self.callbacks.state,
@@ -358,13 +409,12 @@ class InterviewApplication:
         )
         if not self.config.listen_to_candidate:
             return interviewer
-        candidate_transcriber = MoonshineTranscriber(
-            MoonshineConfig(model_path=self.config.model_path, keyterms=self.config.keyterms)
-        )
+        candidate_transcriber = self._create_transcriber()
+        candidate_speech, candidate_turn = self._create_detectors()
         self._candidate_engine = AutomaticTranscriber(
             candidate_transcriber,
-            speech_detector=SileroSpeechDetector(),
-            turn_detector=SmartTurnDetector(),
+            speech_detector=candidate_speech,
+            turn_detector=candidate_turn,
             transcript_callback=self._on_candidate_transcript,
             partial_callback=self.callbacks.candidate_partial,
             state_callback=self._on_candidate_state,
@@ -433,6 +483,12 @@ class InterviewApplication:
         self._automatic_engine = None
         if automatic_engine is not None:
             automatic_engine.close()
+        transcribers, self._transcribers = self._transcribers, []
+        self._shared_transcriber = None
+        for transcriber in transcribers:
+            close = getattr(transcriber, "close", None)
+            if close is not None:
+                close()
         pipeline = self._answer_pipeline
         self._answer_pipeline = None
         if pipeline is not None:

@@ -12,7 +12,14 @@ adapted code, and separately downloaded models retain their own licenses.
   their license notices, with SHA-256 verification. Model weights are not bundled
   in this repository or the Python distributions.
 - [Moonshine Voice](https://github.com/moonshine-ai/moonshine) and its models are
-  installed separately. Consult the license of the selected package/model.
+  installed separately. The selected English streaming models are MIT licensed;
+  the catalog downloader retains the pinned upstream license alongside them.
+- [NVIDIA Nemotron Speech Streaming English 0.6B](https://huggingface.co/nvidia/nemotron-speech-streaming-en-0.6b)
+  is a separate optional model under its published NVIDIA model license. The
+  downloader retains its pinned model card, including the governing license link.
+  [NeMo-Speech.cpp](https://github.com/NVIDIA/NeMo-Speech.cpp) runtime archives
+  retain their upstream license notices, including bundled components. These
+  files are downloaded explicitly, not included in the application distributions.
 - The optional desktop uses [Qt for Python / PySide6](https://doc.qt.io/qtforpython-6/licenses.html),
   which offers LGPL/GPL and commercial licensing. Other Python dependencies
   retain the licenses in their installed distribution metadata.

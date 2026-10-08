@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Explicitly install pinned public CPU models and their license notices.
+"""Explicitly install pinned public CPU/CUDA models and their license notices.
 
 No audio or candidate data is read or uploaded. SHA256 values pin the downloaded
 bytes; each file is verified before an atomic replacement of its destination.
@@ -29,11 +29,18 @@ ASSETS = (
      f"https://raw.githubusercontent.com/snakers4/silero-vad/{SILERO_REVISION}/LICENSE",
      "2e63e9a38b6e8fc0c7bc37ce174caca1862870856c6daf5697cfb785e925520b"),
 )
+GPU_ASSET = (
+    "smart-turn-v3.2-gpu.onnx",
+    f"https://huggingface.co/pipecat-ai/smart-turn-v3/resolve/{SMART_REVISION}/smart-turn-v3.2-gpu.onnx",
+    "ab8dc64b88713f90b571c15b714bd1330e6c883cad8763dacf65c9376dc539be",
+)
 
 
-def install(destination: Path) -> None:
+def install(destination: Path, *, device: str = "cpu") -> None:
+    if device not in {"cpu", "cuda"}:
+        raise ValueError("Detector device must be cpu or cuda")
     destination.mkdir(parents=True, exist_ok=True)
-    for name, url, expected in ASSETS:
+    for name, url, expected in (*ASSETS, *((GPU_ASSET,) if device == "cuda" else ())):
         path = destination / name
         if path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == expected:
             print(f"Verified {path}")
@@ -60,8 +67,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--directory", type=Path,
                         default=Path.home() / ".local/share/interview-helper/turn-models")
+    parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     args = parser.parse_args()
-    install(args.directory)
+    install(args.directory, device=args.device)
 
 
 if __name__ == "__main__":
